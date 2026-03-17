@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Battle Notifier</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f13; color: #e0e0e0; min-height: 100vh; }
+  .app { max-width: 520px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  .header { text-align: center; margin-bottom: 2rem; padding-top: 1rem; }
+  .logo { width: 64px; height: 64px; background: #5865F2; border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; box-shadow: 0 0 30px rgba(88,101,242,0.4); }
+  .logo svg { width: 36px; height: 36px; fill: white; }
+  h1 { font-size: 22px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+  .subtitle { font-size: 13px; color: #888; margin-top: 4px; }
+  #overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; align-items: center; justify-content: center; }
+  #overlay.show { display: flex; animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  .popup { background: #1a1a22; border: 2px solid #ED4245; border-radius: 20px; padding: 2rem; text-align: center; max-width: 380px; width: 90%; animation: popIn 0.3s ease; }
+  @keyframes popIn { 0%{transform:scale(0.8)} 100%{transform:scale(1)} }
+  .popup-icon { font-size: 52px; margin-bottom: 10px; }
+  .popup-title { font-size: 26px; font-weight: 800; color: #ED4245; margin-bottom: 6px; }
+  .popup-channel { display: inline-block; background: #2a2a35; color: #aaa; font-size: 12px; padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; }
+  .popup-msg { font-size: 14px; color: #aaa; margin-bottom: 16px; line-height: 1.6; word-break: break-word; }
+  .popup-time { font-size: 12px; color: #555; margin-bottom: 18px; }
+  .popup-close { background: #ED4245; color: white; border: none; padding: 12px 32px; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .popup-close:hover { background: #c0392b; }
+  .status { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; font-size: 13px; margin-bottom: 1.2rem; background: #1a1a22; border: 1px solid #2a2a35; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .dot.idle { background: #555; }
+  .dot.connecting { background: #FFC107; animation: blink 1s infinite; }
+  .dot.connected { background: #2ecc71; animation: glow 2s infinite; }
+  .dot.error { background: #ED4245; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  @keyframes glow { 0%,100%{box-shadow:0 0 4px #2ecc71} 50%{box-shadow:0 0 10px #2ecc71} }
+  .card { background: #1a1a22; border: 1px solid #2a2a35; border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem; }
+  .card h2 { font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+  .field input { width: 100%; padding: 10px 14px; font-size: 14px; border: 1px solid #2a2a35; border-radius: 10px; background: #0f0f13; color: #e0e0e0; font-family: 'Courier New', monospace; outline: none; transition: border-color 0.2s; }
+  .field input:focus { border-color: #5865F2; box-shadow: 0 0 0 3px rgba(88,101,242,0.15); }
+  .btn { width: 100%; padding: 12px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+  .btn-primary { background: #5865F2; color: white; }
+  .btn-primary:hover { background: #4752c4; }
+  .btn-danger { background: #ED4245; color: white; margin-top: 8px; }
+  .btn-danger:hover { background: #c0392b; }
+  .btn-sm { width: auto; padding: 6px 14px; font-size: 12px; border-radius: 8px; }
+
+  /* Kanal listesi */
+  .channel-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .channel-item { display: flex; align-items: center; gap: 10px; background: #0f0f13; border: 1px solid #2a2a35; border-radius: 10px; padding: 10px 12px; }
+  .channel-item.active-ch { border-color: #2ecc71; }
+  .channel-dot { width: 7px; height: 7px; border-radius: 50%; background: #555; flex-shrink: 0; }
+  .channel-dot.on { background: #2ecc71; }
+  .channel-info { flex: 1; min-width: 0; }
+  .channel-name { font-size: 13px; font-weight: 600; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .channel-id { font-size: 11px; color: #555; font-family: 'Courier New', monospace; }
+  .channel-toggle { background: #1a1a22; border: 1px solid #2a2a35; color: #aaa; padding: 4px 10px; border-radius: 7px; font-size: 11px; cursor: pointer; }
+  .channel-toggle.enabled { background: #1a2a1a; border-color: #2a4a2a; color: #2ecc71; }
+  .channel-remove { background: none; border: none; color: #444; font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
+  .channel-remove:hover { color: #ED4245; }
+
+  .add-channel-row { display: flex; gap: 8px; }
+  .add-channel-row input { flex: 1; padding: 9px 12px; font-size: 13px; border: 1px solid #2a2a35; border-radius: 10px; background: #0f0f13; color: #e0e0e0; font-family: 'Courier New', monospace; outline: none; }
+  .add-channel-row input:focus { border-color: #5865F2; }
+  .add-channel-name { padding: 9px 12px; font-size: 13px; border: 1px solid #2a2a35; border-radius: 10px; background: #0f0f13; color: #e0e0e0; outline: none; width: 120px; }
+  .add-channel-name:focus { border-color: #5865F2; }
+  .add-channel-row button { padding: 9px 16px; background: #5865F2; border: none; border-radius: 10px; font-size: 13px; color: white; cursor: pointer; font-weight: 600; white-space: nowrap; }
+
+  .log { max-height: 220px; overflow-y: auto; }
+  .log-item { font-size: 12px; padding: 7px 0; border-bottom: 1px solid #1f1f28; display: flex; gap: 10px; line-height: 1.5; }
+  .log-item:last-child { border-bottom: none; }
+  .log-time { color: #444; flex-shrink: 0; font-family: 'Courier New', monospace; font-size: 11px; }
+  .log-msg { color: #888; word-break: break-word; }
+  .log-msg.alert { color: #ED4245; font-weight: 700; }
+  .log-msg.success { color: #2ecc71; }
+  .log-msg.warn { color: #FFC107; }
+  .counter { display: flex; gap: 10px; margin-bottom: 1rem; }
+  .count-card { flex: 1; background: #1a1a22; border: 1px solid #2a2a35; border-radius: 12px; padding: 12px; text-align: center; }
+  .count-num { font-size: 28px; font-weight: 700; color: #5865F2; }
+  .count-label { font-size: 11px; color: #555; margin-top: 2px; }
+  .notif-banner { background: #1a2a1a; border: 1px solid #2a4a2a; border-radius: 12px; padding: 10px 14px; margin-bottom: 1rem; font-size: 13px; color: #5ecc71; }
+  .notif-banner.warn { background: #2a1a1a; border-color: #4a2a2a; color: #cc8855; cursor: pointer; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 1rem; background: #1a1a22; border-radius: 12px; padding: 4px; border: 1px solid #2a2a35; }
+  .tab { flex: 1; padding: 8px; border-radius: 9px; font-size: 13px; cursor: pointer; border: none; background: transparent; color: #666; font-weight: 500; transition: all 0.15s; }
+  .tab.active { background: #5865F2; color: white; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .keyword-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+  .kw-tag { display: flex; align-items: center; gap: 5px; background: #0f0f13; border: 1px solid #2a2a35; border-radius: 20px; padding: 4px 12px; font-size: 12px; color: #aaa; }
+  .kw-remove { cursor: pointer; color: #555; font-size: 16px; line-height: 1; }
+  .kw-remove:hover { color: #ED4245; }
+  .kw-input-row { display: flex; gap: 8px; margin-top: 10px; }
+  .kw-input-row input { flex: 1; padding: 9px 12px; font-size: 13px; border: 1px solid #2a2a35; border-radius: 10px; background: #0f0f13; color: #e0e0e0; outline: none; }
+  .kw-input-row button { padding: 9px 16px; background: #5865F2; border: none; border-radius: 10px; font-size: 13px; color: white; cursor: pointer; font-weight: 600; }
+  .volume-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+  .volume-row label { font-size: 13px; color: #aaa; min-width: 50px; }
+  .volume-row input[type=range] { flex: 1; accent-color: #5865F2; }
+  .volume-row span { font-size: 13px; color: #5865F2; min-width: 32px; text-align: right; }
+  .hint { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <div class="popup">
+    <div class="popup-icon">&#9876;</div>
+    <div class="popup-title">BATTLE BASLADI!</div>
+    <div class="popup-channel" id="popupChannel">#kanal</div>
+    <div class="popup-msg" id="popupMsg">Rumble Royale baslatildi!</div>
+    <div class="popup-time" id="popupTime"></div>
+    <button class="popup-close" onclick="closePopup()">Tamam, gordum!</button>
+  </div>
+</div>
+
+<div class="app">
+  <div class="header">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.033.054a19.906 19.906 0 0 0 5.993 3.03.079.079 0 0 0 .084-.026 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>
+    </div>
+    <h1>Battle Notifier</h1>
+    <p class="subtitle">Metawin · Rumble Royale izleyici</p>
+  </div>
+
+  <div id="notifBanner" class="notif-banner warn" onclick="requestNotif()">
+    &#9888; Masaustu bildirimine izin vermek icin tikla
+  </div>
+
+  <div class="counter">
+    <div class="count-card">
+      <div class="count-num" id="battleCount">0</div>
+      <div class="count-label">Battle sayisi</div>
+    </div>
+    <div class="count-card">
+      <div class="count-num" id="msgCount">0</div>
+      <div class="count-label">Mesaj sayisi</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('main')">Baglan</button>
+    <button class="tab" onclick="switchTab('channels')">Kanallar</button>
+    <button class="tab" onclick="switchTab('settings')">Ayarlar</button>
+  </div>
+
+  <!-- BAGLAN -->
+  <div id="tab-main" class="panel active">
+    <div id="statusDiv" class="status">
+      <div id="statusDot" class="dot idle"></div>
+      <span id="statusText">Bagli degil</span>
+    </div>
+    <div class="card">
+      <h2>Discord Token</h2>
+      <div class="field">
+        <label>Kullanici Token</label>
+        <input type="password" id="tokenInput" placeholder="Token'ini buraya yapistir" autocomplete="off" />
+      </div>
+      <button class="btn btn-primary" id="connectBtn" onclick="connect(false)">Baglan ve Dinle</button>
+      <button class="btn btn-danger" id="disconnectBtn" onclick="disconnect()" style="display:none;">Baglantıyı Kes</button>
+    </div>
+    <div class="card">
+      <h2>Canli Gunluk</h2>
+      <div class="log" id="logDiv">
+        <div class="log-item">
+          <span class="log-time">--:--:--</span>
+          <span class="log-msg">Henuz aktivite yok...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KANALLAR -->
+  <div id="tab-channels" class="panel">
+    <div class="card">
+      <h2>Dinlenen Kanallar</h2>
+      <div class="channel-list" id="channelList"></div>
+      <p class="hint" style="margin-bottom:10px;">Yeni kanal ekle:</p>
+      <div class="add-channel-row" style="flex-wrap:wrap; gap:6px;">
+        <input type="text" id="newChName" class="add-channel-name" placeholder="Kanal adi (orn: #genel)" />
+        <input type="text" id="newChId" style="flex:1;min-width:140px;padding:9px 12px;font-size:13px;border:1px solid #2a2a35;border-radius:10px;background:#0f0f13;color:#e0e0e0;font-family:'Courier New',monospace;outline:none;" placeholder="Kanal ID" inputmode="numeric" />
+        <button onclick="addChannel()" style="padding:9px 16px;background:#5865F2;border:none;border-radius:10px;font-size:13px;color:white;cursor:pointer;font-weight:600;">Ekle</button>
+      </div>
+      <p class="hint">Kanal ID icin: Discord Gelistirici Modu acik → kanala sag tikla → Kanal IDyi Kopyala</p>
+    </div>
+  </div>
+
+  <!-- AYARLAR -->
+  <div id="tab-settings" class="panel">
+    <div class="card">
+      <h2>Ses Seviyesi</h2>
+      <div class="volume-row">
+        <label>Ses</label>
+        <input type="range" min="0" max="100" value="80" id="volumeSlider" oninput="document.getElementById('volVal').textContent=this.value+'%'" />
+        <span id="volVal">80%</span>
+      </div>
+      <div style="margin-top:12px;">
+        <button class="btn btn-primary" onclick="testAlert()">Alarm Testini Calistir</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Izlenecek Kelimeler</h2>
+      <p class="hint" style="margin-bottom:4px;">Bu kelimelerden biri mesajda gecerse alarm tetiklenir.</p>
+      <div class="keyword-list" id="kwList"></div>
+      <div class="kw-input-row">
+        <input type="text" id="kwInput" placeholder="Kelime ekle..." />
+        <button onclick="addKeyword()">Ekle</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var ws = null;
+var keywords = ['battle', '!battle', 'rumble'];
+var channels = [
+  { id: '', name: '#genel', enabled: true }
+];
+var battleCount = 0;
+var msgCount = 0;
+var heartbeatInterval = null;
+var sequence = null;
+var audioCtx = null;
+var autoReconnect = false;
+var reconnectTimeout = null;
+var reconnectDelay = 3000;
+var savedToken = '';
+
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playAlert() {
+  try {
+    var ctx = getAudio();
+    if (ctx.state === 'suspended') ctx.resume();
+    var vol = parseInt(document.getElementById('volumeSlider').value) / 100;
+    var notes = [{f:523,t:0},{f:659,t:0.13},{f:784,t:0.26},{f:1047,t:0.4},{f:784,t:0.55},{f:1047,t:0.68},{f:1319,t:0.82},{f:1047,t:0.96}];
+    notes.forEach(function(n) {
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = 'square';
+      o.frequency.value = n.f;
+      g.gain.setValueAtTime(vol * 0.15, ctx.currentTime + n.t);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + n.t + 0.2);
+      o.start(ctx.currentTime + n.t);
+      o.stop(ctx.currentTime + n.t + 0.22);
+    });
+  } catch(e) {}
+}
+
+function showPopup(msg, channelName) {
+  var now = new Date();
+  var t = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+  document.getElementById('popupMsg').textContent = msg;
+  document.getElementById('popupTime').textContent = t;
+  document.getElementById('popupChannel').textContent = channelName || '#kanal';
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closePopup() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
+function requestNotif() {
+  Notification.requestPermission().then(function(p) {
+    if (p === 'granted') {
+      document.getElementById('notifBanner').className = 'notif-banner';
+      document.getElementById('notifBanner').textContent = 'Masaustu bildirimleri acik';
+    }
+  });
+}
+
+function triggerAlert(msg, channelName) {
+  playAlert();
+  showPopup(msg, channelName);
+  if (Notification.permission === 'granted') {
+    try { new Notification('BATTLE BASLADI! ' + (channelName || ''), { body: msg, requireInteraction: true }); } catch(e) {}
+  }
+  battleCount++;
+  document.getElementById('battleCount').textContent = battleCount;
+}
+
+function testAlert() {
+  triggerAlert('Test - sistem calisiyor! Battle basladi!', '#test-kanal');
+}
+
+function addLog(msg, type) {
+  var d = document.getElementById('logDiv');
+  var now = new Date();
+  var t = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+  var first = d.querySelector('.log-msg');
+  if (first && first.textContent === 'Henuz aktivite yok...') d.innerHTML = '';
+  var item = document.createElement('div');
+  item.className = 'log-item';
+  var cls = type ? ' ' + type : '';
+  item.innerHTML = '<span class="log-time">' + t + '</span><span class="log-msg' + cls + '">' + msg + '</span>';
+  d.insertBefore(item, d.firstChild);
+  while (d.children.length > 100) d.removeChild(d.lastChild);
+}
+
+function setStatus(state, text) {
+  document.getElementById('statusDot').className = 'dot ' + state;
+  document.getElementById('statusText').textContent = text;
+}
+
+function switchTab(name) {
+  var tabs = document.querySelectorAll('.tab');
+  var names = ['main', 'channels', 'settings'];
+  tabs.forEach(function(t, i) { t.className = 'tab' + (names[i] === name ? ' active' : ''); });
+  document.querySelectorAll('.panel').forEach(function(p) { p.className = 'panel'; });
+  document.getElementById('tab-' + name).className = 'panel active';
+}
+
+function renderChannels() {
+  var list = document.getElementById('channelList');
+  if (channels.length === 0) {
+    list.innerHTML = '<p style="font-size:13px;color:#555;text-align:center;padding:12px 0;">Henuz kanal eklenmedi.</p>';
+    return;
+  }
+  list.innerHTML = channels.map(function(ch, i) {
+    var hasDot = ch.enabled ? 'on' : '';
+    var toggleLabel = ch.enabled ? 'Acik' : 'Kapali';
+    var toggleClass = ch.enabled ? 'channel-toggle enabled' : 'channel-toggle';
+    var idDisplay = ch.id ? ch.id : '(ID girilmedi)';
+    return '<div class="channel-item' + (ch.enabled ? ' active-ch' : '') + '">' +
+      '<div class="channel-dot ' + hasDot + '"></div>' +
+      '<div class="channel-info">' +
+        '<div class="channel-name">' + ch.name + '</div>' +
+        '<div class="channel-id">' + idDisplay + '</div>' +
+      '</div>' +
+      '<button class="' + toggleClass + '" onclick="toggleChannel(' + i + ')">' + toggleLabel + '</button>' +
+      '<button class="channel-remove" onclick="removeChannel(' + i + ')">&times;</button>' +
+    '</div>';
+  }).join('');
+}
+
+function addChannel() {
+  var name = document.getElementById('newChName').value.trim();
+  var id = document.getElementById('newChId').value.trim();
+  if (!id) { alert('Kanal ID gerekli!'); return; }
+  if (!name) name = '#kanal-' + (channels.length + 1);
+  channels.push({ id: id, name: name, enabled: true });
+  renderChannels();
+  document.getElementById('newChName').value = '';
+  document.getElementById('newChId').value = '';
+}
+
+function toggleChannel(i) {
+  channels[i].enabled = !channels[i].enabled;
+  renderChannels();
+}
+
+function removeChannel(i) {
+  channels.splice(i, 1);
+  renderChannels();
+}
+
+function renderKeywords() {
+  document.getElementById('kwList').innerHTML = keywords.map(function(k) {
+    return '<div class="kw-tag">' + k + '<span class="kw-remove" onclick="removeKeyword(\'' + k + '\')">&times;</span></div>';
+  }).join('');
+}
+
+function addKeyword() {
+  var inp = document.getElementById('kwInput');
+  var val = inp.value.trim().toLowerCase();
+  if (val && keywords.indexOf(val) === -1) { keywords.push(val); renderKeywords(); }
+  inp.value = '';
+}
+
+function removeKeyword(k) {
+  keywords = keywords.filter(function(x) { return x !== k; });
+  renderKeywords();
+}
+
+function getEnabledChannelIds() {
+  var ids = {};
+  channels.forEach(function(ch) {
+    if (ch.enabled && ch.id) ids[ch.id] = ch.name;
+  });
+  return ids;
+}
+
+function connect(isReconnect) {
+  var token = isReconnect ? savedToken : document.getElementById('tokenInput').value.trim();
+  if (!token) { alert('Token gerekli!'); return; }
+
+  var enabledIds = getEnabledChannelIds();
+  if (Object.keys(enabledIds).length === 0) {
+    alert('En az bir kanal ekleyip aktif etmelisin! "Kanallar" sekmesinden ekle.');
+    return;
+  }
+
+  savedToken = token;
+  autoReconnect = true;
+  sequence = null;
+
+  if (Notification.permission === 'default') requestNotif();
+
+  setStatus('connecting', isReconnect ? 'Yeniden baglanıyor...' : 'Baglanıyor...');
+  addLog(isReconnect ? 'Otomatik yeniden baglanıyor...' : 'Discord a baglanılıyor...', isReconnect ? 'warn' : '');
+
+  try { ws = new WebSocket('wss://gateway.discord.gg/?v=10&encoding=json'); }
+  catch(e) { setStatus('error', 'WebSocket baslatılamadı'); addLog('Hata: ' + e.message); return; }
+
+  ws.onopen = function() { addLog('Baglantı kuruldu', 'success'); };
+
+  ws.onmessage = function(event) {
+    var data;
+    try { data = JSON.parse(event.data); } catch(e) { return; }
+    if (data.s) sequence = data.s;
+
+    if (data.op === 10) {
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      var hbInterval = data.d.heartbeat_interval;
+      heartbeatInterval = setInterval(function() {
+        if (ws && ws.readyState === 1) ws.send(JSON.stringify({op:1, d:sequence}));
+      }, hbInterval);
+      ws.send(JSON.stringify({
+        op: 2,
+        d: { token: token, properties: {os:'Windows', browser:'Chrome', device:''}, intents: (1<<9)|(1<<15) }
+      }));
+    } else if (data.op === 0) {
+      if (data.t === 'READY') {
+        reconnectDelay = 3000;
+        var chCount = Object.keys(getEnabledChannelIds()).length;
+        setStatus('connected', 'Bagli — ' + chCount + ' kanal dinleniyor');
+        addLog('Giris basarili! ' + chCount + ' kanal dinleniyor...', 'success');
+        document.getElementById('connectBtn').style.display = 'none';
+        document.getElementById('disconnectBtn').style.display = 'block';
+      } else if (data.t === 'MESSAGE_CREATE') {
+        var msg = data.d;
+        var currentIds = getEnabledChannelIds();
+        if (!currentIds[msg.channel_id]) return;
+        var channelName = currentIds[msg.channel_id];
+        msgCount++;
+        document.getElementById('msgCount').textContent = msgCount;
+        var content = (msg.content || '').toLowerCase();
+        var author = msg.author ? msg.author.username : '?';
+        var matched = null;
+        for (var i = 0; i < keywords.length; i++) {
+          if (content.indexOf(keywords[i]) !== -1) { matched = keywords[i]; break; }
+        }
+        if (matched) {
+          addLog('BATTLE! [' + channelName + '] ' + author + ': ' + msg.content, 'alert');
+          triggerAlert(author + ': ' + msg.content, channelName);
+        } else {
+          var preview = msg.content.substring(0, 50) + (msg.content.length > 50 ? '...' : '');
+          addLog('[' + channelName + '] ' + author + ': ' + preview);
+        }
+      }
+    } else if (data.op === 9) {
+      autoReconnect = false;
+      setStatus('error', 'Token gecersiz');
+      addLog('Hata: Token gecersiz. Yeniden baglanma durduruldu.', 'alert');
+      document.getElementById('connectBtn').style.display = 'block';
+      document.getElementById('disconnectBtn').style.display = 'none';
+    }
+  };
+
+  ws.onerror = function() { addLog('Baglantı hatası olustu'); };
+
+  ws.onclose = function(e) {
+    if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+    var fatalCodes = [4004, 4013, 4014];
+    var reasons = {4004:'Token gecersiz (4004)', 4013:'Gecersiz intent (4013)', 4014:'MESSAGE CONTENT INTENT acik degil (4014)'};
+    if (fatalCodes.indexOf(e.code) !== -1) {
+      autoReconnect = false;
+      var reason = reasons[e.code] || ('Hata: ' + e.code);
+      setStatus('error', reason);
+      addLog('Kalici hata: ' + reason, 'alert');
+      document.getElementById('connectBtn').style.display = 'block';
+      document.getElementById('disconnectBtn').style.display = 'none';
+    } else if (autoReconnect) {
+      var secs = Math.round(reconnectDelay / 1000);
+      setStatus('connecting', secs + 'sn sonra yeniden baglanıyor...');
+      addLog('Baglantı kesildi (' + e.code + '), ' + secs + 'sn sonra yeniden baglanılıyor...', 'warn');
+      document.getElementById('connectBtn').style.display = 'none';
+      document.getElementById('disconnectBtn').style.display = 'block';
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      reconnectTimeout = setTimeout(function() { connect(true); }, reconnectDelay);
+      reconnectDelay = Math.min(Math.round(reconnectDelay * 1.5), 30000);
+    } else {
+      setStatus('idle', 'Baglantı kesildi');
+      addLog('Baglantı kesildi.');
+      document.getElementById('connectBtn').style.display = 'block';
+      document.getElementById('disconnectBtn').style.display = 'none';
+    }
+  };
+}
+
+function disconnect() {
+  autoReconnect = false;
+  if (reconnectTimeout) { clearTimeout(reconnectTimeout); reconnectTimeout = null; }
+  if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+  if (ws) { ws.close(1000); ws = null; }
+  setStatus('idle', 'Baglantı kesildi');
+  document.getElementById('connectBtn').style.display = 'block';
+  document.getElementById('disconnectBtn').style.display = 'none';
+  addLog('Baglantı manuel olarak kesildi.');
+}
+
+if (Notification.permission === 'granted') {
+  document.getElementById('notifBanner').className = 'notif-banner';
+  document.getElementById('notifBanner').textContent = 'Masaustu bildirimleri acik';
+}
+
+renderChannels();
+renderKeywords();
+</script>
+</body>
+</html>
