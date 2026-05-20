@@ -2,10 +2,12 @@ import asyncio
 import aiohttp
 import json
 import os
-import time
+from dotenv import load_dotenv
+
+load_dotenv()
 
 TOKEN = os.environ.get("DISCORD_TOKEN", "")
-CHANNEL_IDS = os.environ.get("CHANNEL_IDS", "").split(",")
+CHANNEL_IDS = [c.strip() for c in os.environ.get("CHANNEL_IDS", "").split(",") if c.strip()]
 KEYWORDS = ["battle", "!battle", "rumble"]
 NTFY_TOPIC = "metawin-battle-pangoliar"
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
@@ -28,33 +30,43 @@ async def send_ntfy(title, message):
     except Exception as e:
         print(f"[NTFY] Hata: {e}")
 
-async def heartbeat(ws, interval):
+async def heartbeat(ws, interval, seq_holder):
     while True:
         await asyncio.sleep(interval / 1000)
-        await ws.send_str(json.dumps({"op": 1, "d": None}))
+        try:
+            await ws.send_str(json.dumps({"op": 1, "d": seq_holder[0]}))
+        except Exception:
+            break
 
 async def connect():
     reconnect_delay = 5
     while True:
         try:
             print("[BOT] Discord'a baglaniliyor...")
-            async with aiohttp.ClientSession() as session:
-                async with session.ws_connect(GATEWAY) as ws:
+            connector = aiohttp.TCPConnector(ssl=True)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.ws_connect(
+                    GATEWAY,
+                    heartbeat=None,
+                    compress=0
+                ) as ws:
                     heartbeat_task = None
-                    sequence = None
+                    seq_holder = [None]
 
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             data = json.loads(msg.data)
                             op = data.get("op")
                             if data.get("s"):
-                                sequence = data["s"]
+                                seq_holder[0] = data["s"]
 
                             if op == 10:
                                 interval = data["d"]["heartbeat_interval"]
                                 if heartbeat_task:
                                     heartbeat_task.cancel()
-                                heartbeat_task = asyncio.create_task(heartbeat(ws, interval))
+                                heartbeat_task = asyncio.create_task(
+                                    heartbeat(ws, interval, seq_holder)
+                                )
                                 await ws.send_str(json.dumps({
                                     "op": 2,
                                     "d": {
@@ -70,6 +82,7 @@ async def connect():
                             elif op == 0:
                                 if data["t"] == "READY":
                                     print("[BOT] Baglanti basarili! Kanallar dinleniyor...")
+                                    print(f"[BOT] Dinlenen kanallar: {CHANNEL_IDS}")
                                     reconnect_delay = 5
                                 elif data["t"] == "MESSAGE_CREATE":
                                     msg_data = data["d"]
@@ -90,9 +103,12 @@ async def connect():
                             elif op == 9:
                                 print("[BOT] Token gecersiz! Bot durduruluyor.")
                                 return
+                            elif op == 7:
+                                print("[BOT] Yeniden baglanma istendi.")
+                                break
 
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                            print("[BOT] Baglanti kesildi.")
+                            print(f"[BOT] Baglanti kesildi: {msg.type}")
                             break
 
         except Exception as e:
@@ -106,6 +122,12 @@ async def main():
     print("[BOT] Baslatiliyor...")
     print(f"[BOT] Kanallar: {CHANNEL_IDS}")
     print(f"[BOT] NTFY: {NTFY_URL}")
+    if not TOKEN:
+        print("[BOT] HATA: DISCORD_TOKEN ayarlanmamis!")
+        return
+    if not CHANNEL_IDS:
+        print("[BOT] HATA: CHANNEL_IDS ayarlanmamis!")
+        return
     await connect()
 
 if __name__ == "__main__":
